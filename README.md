@@ -283,7 +283,7 @@ Both the edge type and target type are **positional arguments** passed as `{}` g
 | `fieldsKeep` | No | — | Fields from the source node to include in `dt.traverse.history` entries |
 | `nodeId` | No | `id` | Field containing the source node ID to traverse from |
 
-> **Note:** There is no `maxDepth` parameter. To do multi-hop traversal, chain multiple `traverse` commands.
+> **Note:** There is no `maxDepth` parameter.
 
 #### Special field: `dt.traverse.history`
 
@@ -534,16 +534,6 @@ smartscapeEdges "*"
 
 ---
 
-### Filter by management zone then traverse
-
-```dql
-// First get IDs from the classic entity selector via fetch
-fetch dt.entity.host
-| filter id in classicEntitySelector("type(HOST),mzName(Production)")
-| fields id, entity.name
-```
-
----
 
 ### Trace a service call chain
 
@@ -609,47 +599,6 @@ The column order matches the relationship direction, so results read naturally l
 | oneagent | monitors | web-server-01 |
 
 The resolved name comes back as `lookup.name` by default, or `<prefix>name` when a `prefix` is set.
-
----
-
-### `classicEntitySelector()` does not work inside `smartscapeNodes`
-
-It's a common assumption that you can filter SmartScape nodes by tag or management zone using `classicEntitySelector()` directly in a filter, but this is not supported:
-
-```dql
-// ❌ This will error
-smartscapeNodes HOST
-| filter id in classicEntitySelector("type(HOST),tag(production)")
-```
-
-Instead, use it with `fetch dt.entity.*` to get the IDs you need:
-
-```dql
-// ✅ Use fetch to get matching IDs
-fetch dt.entity.host
-| filter id in classicEntitySelector("type(HOST),tag(production)")
-| fields id, entity.name
-```
-
----
-
-### There is no `maxDepth` — chain `traverse` for multi-hop
-
-The `traverse` command has no depth-limiting parameter. To traverse multiple hops, chain multiple `traverse` commands:
-
-```dql
-// ❌ maxDepth does not exist
-smartscapeNodes SERVICE
-| traverse {calls}, {SERVICE}, direction: forward, maxDepth: 3
-
-// ✅ Chain traverse commands instead
-smartscapeNodes SERVICE
-| traverse {calls}, {SERVICE}, direction: forward
-| traverse {calls}, {SERVICE}, direction: forward
-| traverse {calls}, {SERVICE}, direction: forward
-```
-
-Each chained `traverse` adds one more hop and appends an entry to `dt.traverse.history`.
 
 ---
 
