@@ -572,25 +572,25 @@ smartscapeNodes K8S_CLUSTER
 ```dql
 smartscapeEdges "*"
 | lookup [smartscapeNodes "*" | fields id, name], sourceField: target_id, lookupField: id
-| fields type, source_id, lookup.name
+| fields type, lookup.name
 ```
 
-| type | source_id | lookup.name |
-|---|---|---|
-| runs_on | PROCESS-0A1B2C3D... | web-server-01 |
-| calls | SERVICE-0A1B2C3D... | backend-service |
+| type | lookup.name |
+|---|---|
+| runs_on | web-server-01 |
+| calls | backend-service |
 
 **Get the source entity name:**
 ```dql
 smartscapeEdges "*"
 | lookup [smartscapeNodes "*" | fields id, name], sourceField: source_id, lookupField: id
-| fields lookup.name, type, target_id
+| fields lookup.name, type
 ```
 
-| lookup.name | type | target_id |
-|---|---|---|
-| my-process | runs_on | HOST-0A1B2C3D... |
-| frontend-service | calls | SERVICE-0A1B2C3D... |
+| lookup.name | type |
+|---|---|
+| my-process | runs_on |
+| frontend-service | calls |
 
 **Get both source and target names at once using `prefix`:**
 ```dql
