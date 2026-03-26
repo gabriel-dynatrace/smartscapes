@@ -17,6 +17,7 @@ A practical, easy-to-digest guide for querying topology data using Dynatrace's S
 6. [Entity Views (`dt.entity.*`)](#entity-views-dtentity)
 7. [Node & Edge Types Reference](#node--edge-types-reference)
 8. [Common Patterns & Recipes](#common-patterns--recipes)
+9. [Tips](#tips)
 
 ---
 
@@ -59,7 +60,7 @@ You query nodes and edges directly in DQL using three commands:
 | **Edge** | A directed relationship between two entities (e.g. `calls`, `runs_on`) |
 | **Node type** | Short uppercase name for the entity type: `HOST`, `SERVICE`, `PROCESS`, etc. |
 | **Edge type** | Lowercase relationship name: `calls`, `runs_on`, `belongs_to`, etc. |
-| **SmartScape ID** | The internal graph ID for an entity (e.g. `HOST-07A2F9F20F9F2D68`) |
+| **SmartScape ID** | The internal graph ID for an entity (e.g. `HOST-0A1B2C3D4E5F6789`) |
 
 > **Note:** SmartScape node types (`HOST`, `SERVICE`) are different from the `dt.entity.*` names used with `fetch`. See the [reference table](#node--edge-types-reference) for the mapping.
 
@@ -158,7 +159,7 @@ The type is a **positional argument** passed directly after the command — no p
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string | SmartScape entity ID (e.g. `HOST-07A2F9F20F9F2D68`) |
+| `id` | string | SmartScape entity ID (e.g. `HOST-0A1B2C3D4E5F6789`) |
 | `type` | string | Entity type (e.g. `HOST`, `SERVICE`) |
 | `name` | string | Display name |
 
@@ -290,7 +291,7 @@ Every result from `traverse` includes `dt.traverse.history` — an array of obje
 
 ```json
 {
-  "id": "HOST-07A2F9F20F9F2D68",
+  "id": "HOST-0A1B2C3D4E5F6789",
   "edge_type": "runs_on",
   "direction": "BACKWARD",
   "name": "web-server-01"   // only if fieldsKeep: {name} was set
@@ -311,7 +312,7 @@ smartscapeNodes HOST
 **From a service, find what it calls:**
 ```dql
 smartscapeNodes SERVICE
-| filter name == "BrokerService"
+| filter name == "my-service"
 | traverse {calls}, {SERVICE}, direction: forward
 | fields id, name, dt.traverse.history
 ```
@@ -319,7 +320,7 @@ smartscapeNodes SERVICE
 **Keep source node name in history for traceability:**
 ```dql
 smartscapeNodes SERVICE
-| filter name == "BrokerService"
+| filter name == "my-service"
 | traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
 | fields id, name, dt.traverse.history
 ```
@@ -335,7 +336,7 @@ smartscapeNodes PROCESS
 **Find all services that call a specific service (reverse lookup):**
 ```dql
 smartscapeNodes SERVICE
-| filter name == "BrokerService"
+| filter name == "my-service"
 | traverse {calls}, {SERVICE}, direction: backward
 | fields id, name, dt.traverse.history
 ```
@@ -360,13 +361,13 @@ These DQL functions convert between classic Dynatrace entity IDs and SmartScape 
 Converts a classic entity ID string to a SmartScape-compatible ID for use in filters.
 
 ```dql
-| fieldsAdd ss_id = toSmartscapeId("HOST-07A2F9F20F9F2D68")
+| fieldsAdd ss_id = toSmartscapeId("HOST-0A1B2C3D4E5F6789")
 ```
 
 **Example — start traverse from a known host ID:**
 ```dql
 smartscapeNodes HOST
-| filter id == toSmartscapeId("HOST-07A2F9F20F9F2D68")
+| filter id == toSmartscapeId("HOST-0A1B2C3D4E5F6789")
 | traverse {runs_on}, {PROCESS}, direction: backward
 | fields id, name
 ```
@@ -494,7 +495,7 @@ smartscapeEdges "*"
 
 ```dql
 smartscapeNodes HOST
-| filter name == "ip-192-168-34-67.ec2.internal"
+| filter name == "my-host.internal"
 | traverse {runs_on}, {PROCESS}, direction: backward
 | fields name, id
 ```
@@ -505,7 +506,7 @@ smartscapeNodes HOST
 
 ```dql
 smartscapeNodes PROCESS
-| filter name == "flagd-build flagd-*"
+| filter name == "my-process"
 | traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
 | fields id, name, dt.traverse.history
 ```
@@ -548,7 +549,7 @@ fetch dt.entity.host
 
 ```dql
 smartscapeNodes SERVICE
-| filter name == "BrokerService"
+| filter name == "my-service"
 | traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
 | fields name, dt.traverse.history
 | sort arraySize(dt.traverse.history) asc
@@ -562,9 +563,95 @@ The `dt.traverse.history` array length tells you how many hops away each service
 
 ```dql
 smartscapeNodes K8S_CLUSTER
-| filter name == "gabrielgke"
+| filter name == "my-cluster"
 | traverse {belongs_to}, {K8S_POD}, direction: backward
 | fields name, id, dt.traverse.history
+```
+
+---
+
+## Tips
+
+---
+
+### Edges don't carry names — use `lookup` to resolve them
+
+`smartscapeEdges` only returns IDs (`source_id`, `target_id`) — there are no name fields on the edge itself. Names live on nodes. If you need human-readable names alongside your edge data, you must join back to `smartscapeNodes` using `lookup`.
+
+**Get the target entity name:**
+```dql
+smartscapeEdges "*"
+| lookup [smartscapeNodes "*" | fields id, name], sourceField: target_id, lookupField: id
+| fields type, source_id, target_id, lookup.name
+```
+
+**Get the source entity name:**
+```dql
+smartscapeEdges "*"
+| lookup [smartscapeNodes "*" | fields id, name], sourceField: source_id, lookupField: id
+| fields type, lookup.name, source_id, target_id
+```
+
+**Get both source and target names at once using `prefix`:**
+```dql
+smartscapeEdges "*"
+| lookup [smartscapeNodes "*" | fields id, name], sourceField: source_id, lookupField: id, prefix: "source."
+| lookup [smartscapeNodes "*" | fields id, name], sourceField: target_id, lookupField: id, prefix: "target."
+| fields type, source.name, target.name
+```
+
+The resolved name comes back as `lookup.name` by default, or `<prefix>name` when a `prefix` is set.
+
+---
+
+### `classicEntitySelector()` does not work inside `smartscapeNodes`
+
+It's a common assumption that you can filter SmartScape nodes by tag or management zone using `classicEntitySelector()` directly in a filter, but this is not supported:
+
+```dql
+// ❌ This will error
+smartscapeNodes HOST
+| filter id in classicEntitySelector("type(HOST),tag(production)")
+```
+
+Instead, use it with `fetch dt.entity.*` to get the IDs you need:
+
+```dql
+// ✅ Use fetch to get matching IDs
+fetch dt.entity.host
+| filter id in classicEntitySelector("type(HOST),tag(production)")
+| fields id, entity.name
+```
+
+---
+
+### There is no `maxDepth` — chain `traverse` for multi-hop
+
+The `traverse` command has no depth-limiting parameter. To traverse multiple hops, chain multiple `traverse` commands:
+
+```dql
+// ❌ maxDepth does not exist
+smartscapeNodes SERVICE
+| traverse {calls}, {SERVICE}, direction: forward, maxDepth: 3
+
+// ✅ Chain traverse commands instead
+smartscapeNodes SERVICE
+| traverse {calls}, {SERVICE}, direction: forward
+| traverse {calls}, {SERVICE}, direction: forward
+| traverse {calls}, {SERVICE}, direction: forward
+```
+
+Each chained `traverse` adds one more hop and appends an entry to `dt.traverse.history`.
+
+---
+
+### Edge field is `type`, not `edge_type`
+
+When querying `smartscapeEdges`, the relationship type field is named `type` — not `edge_type`. This is different from the name used in `dt.traverse.history` entries (where it is called `edge_type`).
+
+```dql
+smartscapeEdges "*"
+| fields type, source_id, target_id   // ✅ correct field name
 ```
 
 ---
