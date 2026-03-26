@@ -600,6 +600,14 @@ smartscapeEdges "*"
 | fields source.name, type, target.name
 ```
 
+The column order matches the relationship direction, so results read naturally left to right:
+
+| source.name | type | target.name |
+|---|---|---|
+| frontend-service | calls | backend-service |
+| my-process | runs_on | web-server-01 |
+| oneagent | monitors | web-server-01 |
+
 The resolved name comes back as `lookup.name` by default, or `<prefix>name` when a `prefix` is set.
 
 ---
