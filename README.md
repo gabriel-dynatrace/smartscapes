@@ -172,7 +172,7 @@ smartscapeNodes HOST
 
 **Load all services and frontends:**
 ```dql
-smartscapeNodes {SERVICE, FRONTEND}
+smartscapeNodes SERVICE, FRONTEND
 | fields id, name, type
 ```
 
@@ -311,7 +311,7 @@ smartscapeNodes HOST
 **From a service, find what it calls:**
 ```dql
 smartscapeNodes SERVICE
-| filter name == "my-frontend-service"
+| filter name == "BrokerService"
 | traverse {calls}, {SERVICE}, direction: forward
 | fields id, name, dt.traverse.history
 ```
@@ -319,6 +319,7 @@ smartscapeNodes SERVICE
 **Keep source node name in history for traceability:**
 ```dql
 smartscapeNodes SERVICE
+| filter name == "BrokerService"
 | traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
 | fields id, name, dt.traverse.history
 ```
@@ -334,7 +335,7 @@ smartscapeNodes PROCESS
 **Find all services that call a specific service (reverse lookup):**
 ```dql
 smartscapeNodes SERVICE
-| filter name == "payment-service"
+| filter name == "BrokerService"
 | traverse {calls}, {SERVICE}, direction: backward
 | fields id, name, dt.traverse.history
 ```
@@ -359,13 +360,13 @@ These DQL functions convert between classic Dynatrace entity IDs and SmartScape 
 Converts a classic entity ID string to a SmartScape-compatible ID for use in filters.
 
 ```dql
-| fieldsAdd ss_id = toSmartscapeId("HOST-0000000000000123")
+| fieldsAdd ss_id = toSmartscapeId("HOST-07A2F9F20F9F2D68")
 ```
 
 **Example — start traverse from a known host ID:**
 ```dql
 smartscapeNodes HOST
-| filter id == toSmartscapeId("HOST-0000000000000123")
+| filter id == toSmartscapeId("HOST-07A2F9F20F9F2D68")
 | traverse {runs_on}, {PROCESS}, direction: backward
 | fields id, name
 ```
@@ -374,13 +375,12 @@ smartscapeNodes HOST
 
 ### `classicEntitySelector()`
 
-Converts a classic entity selector string into a list of SmartScape-compatible IDs. Useful for filtering nodes by tags, management zones, or other selector criteria.
+Converts a classic entity selector string into a list of entity IDs. This function works with `fetch dt.entity.*` queries, not with `smartscapeNodes`.
 
 ```dql
-smartscapeNodes HOST
+fetch dt.entity.host
 | filter id in classicEntitySelector("type(HOST),tag(production)")
-| traverse {"*"}, {"*"}, direction: forward
-| fields id, name, type
+| fields entity.name, id
 ```
 
 **Selector examples:**
@@ -389,6 +389,8 @@ smartscapeNodes HOST
 | `type(HOST),tag(production)` | All production hosts |
 | `type(SERVICE),mzName(my-zone)` | Services in management zone |
 | `type(APPLICATION),entityName(checkout*)` | Apps matching name glob |
+
+> **Note:** `classicEntitySelector()` is **not supported** inside `smartscapeNodes` filters. Use it with `fetch dt.entity.*` to get IDs, then use `toSmartscapeId()` if you need to bridge into SmartScape queries.
 
 ---
 
@@ -422,8 +424,8 @@ These views are fast for filtering and counting but don't include topology edges
 ```dql
 fetch dt.entity.host
 | fieldsAdd mz = managementZones[0]
-| summarize count(), by: {mz}
-| sort count desc
+| summarize hosts = count(), by: {mz}
+| sort hosts desc
 ```
 
 ---
@@ -492,7 +494,7 @@ smartscapeEdges "*"
 
 ```dql
 smartscapeNodes HOST
-| filter name == "prod-web-01"
+| filter name == "ip-192-168-34-67.ec2.internal"
 | traverse {runs_on}, {PROCESS}, direction: backward
 | fields name, id
 ```
@@ -503,7 +505,7 @@ smartscapeNodes HOST
 
 ```dql
 smartscapeNodes PROCESS
-| filter name == "checkout-service-process"
+| filter name == "flagd-build flagd-*"
 | traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
 | fields id, name, dt.traverse.history
 ```
@@ -534,10 +536,10 @@ smartscapeEdges "*"
 ### Filter by management zone then traverse
 
 ```dql
-smartscapeNodes HOST
+// First get IDs from the classic entity selector via fetch
+fetch dt.entity.host
 | filter id in classicEntitySelector("type(HOST),mzName(Production)")
-| traverse {runs_on}, {PROCESS}, direction: backward
-| fields name, id, dt.traverse.history
+| fields id, entity.name
 ```
 
 ---
@@ -546,7 +548,7 @@ smartscapeNodes HOST
 
 ```dql
 smartscapeNodes SERVICE
-| filter name == "api-gateway"
+| filter name == "BrokerService"
 | traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
 | fields name, dt.traverse.history
 | sort arraySize(dt.traverse.history) asc
@@ -560,7 +562,7 @@ The `dt.traverse.history` array length tells you how many hops away each service
 
 ```dql
 smartscapeNodes K8S_CLUSTER
-| filter name == "my-cluster"
+| filter name == "gabrielgke"
 | traverse {belongs_to}, {K8S_POD}, direction: backward
 | fields name, id, dt.traverse.history
 ```
