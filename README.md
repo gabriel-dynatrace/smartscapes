@@ -21,18 +21,24 @@ A practical, easy-to-digest guide for querying topology data using Dynatrace's S
 
 ## What is SmartScape on Grail?
 
-SmartScape on Grail is Dynatrace's topology engine, accessible via DQL. It models your environment as a **graph**:
+SmartScape on Grail is Dynatrace's topology engine, accessible via DQL. It models your environment as a **graph** — nodes are entities, edges are the relationships between them.
 
-```
- ┌────────────┐     calls      ┌────────────────┐
- │  SERVICE   │ ─────────────► │    SERVICE     │
- │ (frontend) │                │   (backend)    │
- └────────────┘                └────────────────┘
-       │ runs on                      │ runs on
-       ▼                              ▼
- ┌────────────┐                ┌────────────────┐
- │    HOST    │                │      HOST      │
- └────────────┘                └────────────────┘
+```mermaid
+flowchart LR
+    APP["🖥️ APPLICATION\ncheckout-app"]:::app
+    SVC1["⚙️ SERVICE\nfrontend-service"]:::svc
+    SVC2["⚙️ SERVICE\nbackend-service"]:::svc
+    HOST1["🖧 HOST\nweb-server-01"]:::host
+    HOST2["🖧 HOST\napp-server-01"]:::host
+
+    APP -->|"CALLS"| SVC1
+    SVC1 -->|"CALLS"| SVC2
+    SVC1 -->|"RUNS_ON"| HOST1
+    SVC2 -->|"RUNS_ON"| HOST2
+
+    classDef app fill:#1a6b3a,stroke:#2ecc71,color:#fff
+    classDef svc fill:#1a3a6b,stroke:#3b82f6,color:#fff
+    classDef host fill:#4a3a1a,stroke:#f59e0b,color:#fff
 ```
 
 Each box is a **node** (entity). Each arrow is an **edge** (relationship).
@@ -70,13 +76,11 @@ A **node** represents a monitored entity: a host, service, application, process 
 
 Nodes are the "things" in your environment. When you query `smartscapeNodes`, you're asking: *"Give me all entities of this type."*
 
-```
- ┌──────────────────────────────────────┐
- │  NODE: dt.entity.service             │
- │  id:   "SERVICE-00000ABC"            │
- │  name: "checkout-service"            │
- │  tags: ["production", "payments"]    │
- └──────────────────────────────────────┘
+```mermaid
+flowchart LR
+    N["⚙️ **dt.entity.service**\n─────────────────────\nid: SERVICE-00000ABC\nname: checkout-service\ntags: production, payments"]:::node
+
+    classDef node fill:#1a3a6b,stroke:#3b82f6,color:#fff,rx:8
 ```
 
 Nodes don't inherently tell you anything about how entities relate to each other — that's what edges are for.
@@ -93,11 +97,15 @@ An **edge** is a directed relationship between two nodes. It has:
 
 Edges are directional. `SERVICE_CALLS_SERVICE` goes from the calling service → to the called service. If you want to find *callers* of a service, you traverse backwards along that edge type.
 
-```
- source_type: dt.entity.service          target_type: dt.entity.host
- source_id:   "SERVICE-00000ABC"         target_id:   "HOST-00000XYZ"
-              │                                        ▲
-              └──── edge_type: PROCESS_GROUP_INSTANCE_RUNS_ON_HOST ────┘
+```mermaid
+flowchart LR
+    SRC["⚙️ SERVICE\nSERVICE-00000ABC\n*(source)*"]:::svc
+    TGT["🖧 HOST\nHOST-00000XYZ\n*(target)*"]:::host
+
+    SRC -->|"PROCESS_GROUP_INSTANCE\n_RUNS_ON_HOST"| TGT
+
+    classDef svc fill:#1a3a6b,stroke:#3b82f6,color:#fff
+    classDef host fill:#4a3a1a,stroke:#f59e0b,color:#fff
 ```
 
 When you query `smartscapeEdges`, you're asking: *"Give me all relationships of this type across the entire environment."* This returns a flat table of source/target pairs — useful for mapping dependencies or counting connections, but you need to join with node data to get entity names/attributes.
