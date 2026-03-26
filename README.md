@@ -56,6 +56,68 @@ You query nodes and edges directly in DQL using three commands:
 
 ---
 
+## Nodes vs Edges
+
+Understanding the distinction between nodes and edges is key to working with SmartScape effectively.
+
+### Nodes — What exists
+
+A **node** represents a monitored entity: a host, service, application, process group, Kubernetes pod, etc. Each node has:
+
+- A **type** — the kind of entity it is (e.g. `dt.entity.host`, `dt.entity.service`)
+- An **ID** — a unique SmartScape identifier for that entity
+- **Attributes** — properties like name, tags, management zones, OS type, etc.
+
+Nodes are the "things" in your environment. When you query `smartscapeNodes`, you're asking: *"Give me all entities of this type."*
+
+```
+ ┌──────────────────────────────────────┐
+ │  NODE: dt.entity.service             │
+ │  id:   "SERVICE-00000ABC"            │
+ │  name: "checkout-service"            │
+ │  tags: ["production", "payments"]    │
+ └──────────────────────────────────────┘
+```
+
+Nodes don't inherently tell you anything about how entities relate to each other — that's what edges are for.
+
+---
+
+### Edges — How things connect
+
+An **edge** is a directed relationship between two nodes. It has:
+
+- A **type** — what kind of relationship it is (e.g. `SERVICE_CALLS_SERVICE`, `PROCESS_GROUP_INSTANCE_RUNS_ON_HOST`)
+- A **source** — the entity the relationship originates from
+- A **target** — the entity the relationship points to
+
+Edges are directional. `SERVICE_CALLS_SERVICE` goes from the calling service → to the called service. If you want to find *callers* of a service, you traverse backwards along that edge type.
+
+```
+ source_type: dt.entity.service          target_type: dt.entity.host
+ source_id:   "SERVICE-00000ABC"         target_id:   "HOST-00000XYZ"
+              │                                        ▲
+              └──── edge_type: PROCESS_GROUP_INSTANCE_RUNS_ON_HOST ────┘
+```
+
+When you query `smartscapeEdges`, you're asking: *"Give me all relationships of this type across the entire environment."* This returns a flat table of source/target pairs — useful for mapping dependencies or counting connections, but you need to join with node data to get entity names/attributes.
+
+---
+
+### When to use which
+
+| Goal | Use |
+|------|-----|
+| List entities of a type with their attributes | `smartscapeNodes` |
+| Find all relationships of a given type | `smartscapeEdges` |
+| Start from specific nodes and walk to connected nodes | `smartscapeNodes` + `traverse` |
+| Count how many services call each other | `smartscapeEdges` + `summarize` |
+| Get service names + the hosts they run on | `smartscapeNodes` + `traverse` |
+
+The most powerful pattern is combining all three: use `smartscapeNodes` to define your starting set, `traverse` to walk edges to related entities, and `smartscapeEdges` when you need raw relationship data without a fixed starting point.
+
+---
+
 ## The Three Commands
 
 ---
