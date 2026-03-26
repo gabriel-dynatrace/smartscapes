@@ -8,14 +8,15 @@ A practical, easy-to-digest guide for querying topology data using Dynatrace's S
 
 1. [What is SmartScape on Grail?](#what-is-smartscape-on-grail)
 2. [Core Concepts](#core-concepts)
-3. [The Three Commands](#the-three-commands)
+3. [Nodes vs Edges](#nodes-vs-edges)
+4. [The Three Commands](#the-three-commands)
    - [smartscapeNodes](#smartscapenodes)
    - [smartscapeEdges](#smartscapeedges)
    - [traverse](#traverse)
-4. [Helper Functions](#helper-functions)
-5. [Entity Views (`dt.entity.*`)](#entity-views-dtentity)
-6. [Node Types Reference](#node-types-reference)
-7. [Common Patterns & Recipes](#common-patterns--recipes)
+5. [Helper Functions](#helper-functions)
+6. [Entity Views (`dt.entity.*`)](#entity-views-dtentity)
+7. [Node & Edge Types Reference](#node--edge-types-reference)
+8. [Common Patterns & Recipes](#common-patterns--recipes)
 
 ---
 
@@ -31,10 +32,10 @@ flowchart LR
     HOST1["🖧 HOST\nweb-server-01"]:::host
     HOST2["🖧 HOST\napp-server-01"]:::host
 
-    APP -->|"CALLS"| SVC1
-    SVC1 -->|"CALLS"| SVC2
-    SVC1 -->|"RUNS_ON"| HOST1
-    SVC2 -->|"RUNS_ON"| HOST2
+    APP -->|"calls"| SVC1
+    SVC1 -->|"calls"| SVC2
+    SVC1 -->|"runs_on"| HOST1
+    SVC2 -->|"runs_on"| HOST2
 
     classDef app fill:#1a6b3a,stroke:#2ecc71,color:#fff
     classDef svc fill:#1a3a6b,stroke:#3b82f6,color:#fff
@@ -54,11 +55,13 @@ You query nodes and edges directly in DQL using three commands:
 
 | Term | Meaning |
 |------|---------|
-| **Node** | An entity (host, service, application, etc.) |
-| **Edge** | A relationship between two entities (e.g. `CALLS`, `RUNS_ON`) |
-| **Node type** | The entity type pattern, e.g. `dt.entity.host` |
-| **Edge type** | The relationship type pattern, e.g. `SERVICE_CALLS_SERVICE` |
-| **SmartScape ID** | The internal graph ID for an entity — different from classic entity IDs |
+| **Node** | An entity (host, service, process, etc.) |
+| **Edge** | A directed relationship between two entities (e.g. `calls`, `runs_on`) |
+| **Node type** | Short uppercase name for the entity type: `HOST`, `SERVICE`, `PROCESS`, etc. |
+| **Edge type** | Lowercase relationship name: `calls`, `runs_on`, `belongs_to`, etc. |
+| **SmartScape ID** | The internal graph ID for an entity (e.g. `HOST-07A2F9F20F9F2D68`) |
+
+> **Note:** SmartScape node types (`HOST`, `SERVICE`) are different from the `dt.entity.*` names used with `fetch`. See the [reference table](#node--edge-types-reference) for the mapping.
 
 ---
 
@@ -68,17 +71,17 @@ Understanding the distinction between nodes and edges is key to working with Sma
 
 ### Nodes — What exists
 
-A **node** represents a monitored entity: a host, service, application, process group, Kubernetes pod, etc. Each node has:
+A **node** represents a monitored entity: a host, service, process, Kubernetes pod, etc. Each node has:
 
-- A **type** — the kind of entity it is (e.g. `dt.entity.host`, `dt.entity.service`)
+- A **type** — short uppercase name for the entity kind (e.g. `HOST`, `SERVICE`)
 - An **ID** — a unique SmartScape identifier for that entity
-- **Attributes** — properties like name, tags, management zones, OS type, etc.
+- **Attributes** — properties like name, tags, management zones, etc.
 
 Nodes are the "things" in your environment. When you query `smartscapeNodes`, you're asking: *"Give me all entities of this type."*
 
 ```mermaid
 flowchart LR
-    N["⚙️ **dt.entity.service**\n─────────────────────\nid: SERVICE-00000ABC\nname: checkout-service\ntags: production, payments"]:::node
+    N["⚙️ **SERVICE**\n─────────────────────\nid: SERVICE-00000ABC\nname: checkout-service\ntype: SERVICE"]:::node
 
     classDef node fill:#1a3a6b,stroke:#3b82f6,color:#fff,rx:8
 ```
@@ -91,18 +94,18 @@ Nodes don't inherently tell you anything about how entities relate to each other
 
 An **edge** is a directed relationship between two nodes. It has:
 
-- A **type** — what kind of relationship it is (e.g. `SERVICE_CALLS_SERVICE`, `PROCESS_GROUP_INSTANCE_RUNS_ON_HOST`)
+- A **type** — what kind of relationship it is (e.g. `calls`, `runs_on`, `belongs_to`)
 - A **source** — the entity the relationship originates from
 - A **target** — the entity the relationship points to
 
-Edges are directional. `SERVICE_CALLS_SERVICE` goes from the calling service → to the called service. If you want to find *callers* of a service, you traverse backwards along that edge type.
+Edges are directional. `calls` goes from the calling service → to the called service. If you want to find *callers* of a service, you traverse `backward` along that edge type.
 
 ```mermaid
 flowchart LR
-    SRC["⚙️ SERVICE\nSERVICE-00000ABC\n*(source)*"]:::svc
+    SRC["⚙️ PROCESS\nPROCESS-00000ABC\n*(source)*"]:::svc
     TGT["🖧 HOST\nHOST-00000XYZ\n*(target)*"]:::host
 
-    SRC -->|"PROCESS_GROUP_INSTANCE\n_RUNS_ON_HOST"| TGT
+    SRC -->|"runs_on"| TGT
 
     classDef svc fill:#1a3a6b,stroke:#3b82f6,color:#fff
     classDef host fill:#4a3a1a,stroke:#f59e0b,color:#fff
@@ -120,7 +123,7 @@ When you query `smartscapeEdges`, you're asking: *"Give me all relationships of 
 | Find all relationships of a given type | `smartscapeEdges` |
 | Start from specific nodes and walk to connected nodes | `smartscapeNodes` + `traverse` |
 | Count how many services call each other | `smartscapeEdges` + `summarize` |
-| Get service names + the hosts they run on | `smartscapeNodes` + `traverse` |
+| Get process names + the hosts they run on | `smartscapeNodes` + `traverse` |
 
 The most powerful pattern is combining all three: use `smartscapeNodes` to define your starting set, `traverse` to walk edges to related entities, and `smartscapeEdges` when you need raw relationship data without a fixed starting point.
 
@@ -132,200 +135,215 @@ The most powerful pattern is combining all three: use `smartscapeNodes` to defin
 
 ### `smartscapeNodes`
 
-Loads entity nodes into the DQL pipeline. Think of it as `fetch dt.entity.*` but specifically for graph traversal.
+Loads entity nodes into the DQL pipeline by type.
 
 #### Syntax
 
 ```dql
-smartscapeNodes
-  | nodeType: "dt.entity.<type>"
-  | nodeType: "dt.entity.<type2>"
+smartscapeNodes <TYPE>
+smartscapeNodes {<TYPE1>, <TYPE2>}   // multiple types
+smartscapeNodes "<GLOB*>"            // pattern matching
 ```
 
-You can list multiple `nodeType` lines to load entities of several types at once.
+The type is a **positional argument** passed directly after the command — no parameter name or colon needed.
 
 #### Parameters
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `nodeType` | Yes | Entity type pattern. Glob supported: `dt.entity.serv*` |
+| type | Yes | Node type(s). Use `"*"` for all, or specific types like `HOST`, `SERVICE`. Glob patterns must be quoted: `"K8S_*"` |
+| from / to | No | Time range override |
 
 #### Fields returned
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string | SmartScape entity ID |
-| `type` | string | Entity type (e.g. `dt.entity.service`) |
+| `id` | string | SmartScape entity ID (e.g. `HOST-07A2F9F20F9F2D68`) |
+| `type` | string | Entity type (e.g. `HOST`, `SERVICE`) |
 | `name` | string | Display name |
-
-Additional entity attributes are available depending on type.
 
 #### Examples
 
 **Load all hosts:**
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.host"
+smartscapeNodes HOST
 | fields id, name, type
 ```
 
-**Load all services and applications:**
+**Load all services and frontends:**
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.service"
-| nodeType: "dt.entity.application"
+smartscapeNodes {SERVICE, FRONTEND}
 | fields id, name, type
 ```
 
-**Use a glob to match multiple types:**
+**Use a glob to match all Kubernetes types:**
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.serv*"
-| fields id, name
+smartscapeNodes "K8S_*"
+| fields id, name, type
+| dedup type
+```
+
+**Discover all node types in your environment:**
+```dql
+smartscapeNodes "*"
+| fields type
+| dedup type
 ```
 
 ---
 
 ### `smartscapeEdges`
 
-Loads topology edges — the relationships between entities. Each edge has a source and a target.
+Loads topology edges — the relationships between entities. Each row is a directed source → target pair.
 
 #### Syntax
 
 ```dql
-smartscapeEdges
-  | edgeType: "<EDGE_TYPE_PATTERN>"
+smartscapeEdges <edge_type>
+smartscapeEdges "<GLOB*>"    // pattern matching, must be quoted
 ```
 
 #### Parameters
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `edgeType` | Yes | Edge type pattern. Glob supported: `*CALLS*` |
+| type | Yes | Edge type(s). Lowercase names like `runs_on`, `calls`. Use `"*"` for all. Glob patterns must be quoted. |
+| from / to | No | Time range override |
 
 #### Fields returned
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `edge_type` | string | The relationship type (e.g. `SERVICE_CALLS_SERVICE`) |
+| `type` | string | The relationship type (e.g. `runs_on`, `calls`) |
 | `source_id` | string | SmartScape ID of the source entity |
-| `source_type` | string | Entity type of the source |
+| `source_type` | string | Node type of the source (e.g. `PROCESS`) |
 | `target_id` | string | SmartScape ID of the target entity |
-| `target_type` | string | Entity type of the target |
+| `target_type` | string | Node type of the target (e.g. `HOST`) |
+
+> **Note:** The field is named `type`, not `edge_type`.
 
 #### Examples
 
 **All edges of any type:**
 ```dql
-smartscapeEdges
-| edgeType: "*"
-| fields edge_type, source_id, target_id
+smartscapeEdges "*"
+| fields type, source_id, target_id
 ```
 
 **Only "runs on" relationships:**
 ```dql
-smartscapeEdges
-| edgeType: "*RUNS_ON*"
-| fields edge_type, source_id, source_type, target_id, target_type
+smartscapeEdges runs_on
+| fields type, source_id, source_type, target_id, target_type
 ```
 
 **Service-to-service call relationships:**
 ```dql
-smartscapeEdges
-| edgeType: "SERVICE_CALLS_SERVICE"
+smartscapeEdges calls
+| filter source_type == "SERVICE"
 | fields source_id, target_id
 ```
 
 **Count all relationship types:**
 ```dql
-smartscapeEdges
-| edgeType: "*"
-| summarize count(), by: {edge_type}
+smartscapeEdges "*"
+| summarize count(), by: {type}
 | sort count desc
+```
+
+**All edges from Kubernetes Pods:**
+```dql
+smartscapeEdges "*"
+| filter source_type == "K8S_POD"
+| summarize by: {type, target_type}, edges = count()
 ```
 
 ---
 
 ### `traverse`
 
-Starts from a set of source nodes and follows edges to reach connected target nodes. This is how you walk the topology graph.
+Starts from a set of source nodes and follows edges to reach connected target nodes. Piped after `smartscapeNodes`.
 
 #### Syntax
 
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.<source_type>"
-| traverse
-    | edgeType: "<EDGE_TYPE>"
-    | direction: "forward" | "backward" | "both"
-    | maxDepth: <number>
+smartscapeNodes <SOURCE_TYPE>
+| traverse {<edge_type>}, {<TARGET_TYPE>} [, direction: forward|backward] [, fieldsKeep: {field, ...}] [, nodeId: field]
 ```
 
-`traverse` is **piped after** `smartscapeNodes` — it uses the nodes in the pipeline as the starting point.
+Both the edge type and target type are **positional arguments** passed as `{}` groups.
 
 #### Parameters
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `edgeType` | Yes | — | Edge type(s) to follow. Glob supported. |
-| `direction` | No | `"forward"` | `"forward"` follows edges away from source; `"backward"` follows edges toward source; `"both"` follows in either direction |
-| `maxDepth` | No | `1` | How many hops to traverse |
+| edgeType | Yes | — | Edge type(s) to follow. Glob supported. Use `{runs_on}` or `{"*"}` |
+| targetType | Yes | — | Target node type(s) to reach. Use `{HOST}` or `{"*"}` |
+| `direction` | No | `forward` | `forward` follows edges source→target; `backward` follows target→source |
+| `fieldsKeep` | No | — | Fields from the source node to include in `dt.traverse.history` entries |
+| `nodeId` | No | `id` | Field containing the source node ID to traverse from |
+
+> **Note:** There is no `maxDepth` parameter. To do multi-hop traversal, chain multiple `traverse` commands.
 
 #### Special field: `dt.traverse.history`
 
-Every node result from `traverse` includes a `dt.traverse.history` field — an array showing the path of IDs taken to reach that node.
+Every result from `traverse` includes `dt.traverse.history` — an array of objects showing the path taken to reach that node. Each entry contains:
 
-```
-dt.traverse.history = ["HOST-AAA", "SERVICE-BBB", "SERVICE-CCC"]
-                        └─ start       └─ hop 1        └─ current
+```json
+{
+  "id": "HOST-07A2F9F20F9F2D68",
+  "edge_type": "runs_on",
+  "direction": "BACKWARD",
+  "name": "web-server-01"   // only if fieldsKeep: {name} was set
+}
 ```
 
-This is useful for tracing call chains or dependency paths.
+The length of the array tells you how many hops away the result is.
 
 #### Examples
 
-**From hosts, find all services running on them:**
+**From hosts, find all processes running on them:**
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.host"
-| traverse
-    | edgeType: "*RUNS_ON*"
-    | direction: "backward"
+smartscapeNodes HOST
+| traverse {runs_on}, {PROCESS}, direction: backward
 | fields id, name, type, dt.traverse.history
 ```
 
-**From a service, find what it calls (1 hop):**
+**From a service, find what it calls:**
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.service"
+smartscapeNodes SERVICE
 | filter name == "my-frontend-service"
-| traverse
-    | edgeType: "SERVICE_CALLS_SERVICE"
-    | direction: "forward"
-    | maxDepth: 1
+| traverse {calls}, {SERVICE}, direction: forward
 | fields id, name, dt.traverse.history
 ```
 
-**Multi-hop: from application → services → hosts (2 hops):**
+**Keep source node name in history for traceability:**
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.application"
-| traverse
-    | edgeType: "*"
-    | direction: "forward"
-    | maxDepth: 2
+smartscapeNodes SERVICE
+| traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
+| fields id, name, dt.traverse.history
+```
+
+**Multi-hop: processes → hosts, then hosts → containers (chained):**
+```dql
+smartscapeNodes PROCESS
+| traverse {runs_on}, {HOST}, direction: forward
+| traverse {runs_on}, {CONTAINER}, direction: forward
 | fields id, name, type, dt.traverse.history
 ```
 
 **Find all services that call a specific service (reverse lookup):**
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.service"
+smartscapeNodes SERVICE
 | filter name == "payment-service"
-| traverse
-    | edgeType: "SERVICE_CALLS_SERVICE"
-    | direction: "backward"
+| traverse {calls}, {SERVICE}, direction: backward
 | fields id, name, dt.traverse.history
+```
+
+**Traverse all edge types to any target:**
+```dql
+smartscapeNodes HOST
+| traverse {"*"}, {"*"}, direction: forward
+| fields id, name, type, dt.traverse.history
 ```
 
 ---
@@ -338,22 +356,17 @@ These DQL functions convert between classic Dynatrace entity IDs and SmartScape 
 
 ### `toSmartscapeId()`
 
-Converts a classic entity ID string to a SmartScape-compatible ID.
+Converts a classic entity ID string to a SmartScape-compatible ID for use in filters.
 
 ```dql
 | fieldsAdd ss_id = toSmartscapeId("HOST-0000000000000123")
 ```
 
-Use this when you have a classic entity ID (from an alert, API call, or variable) and need to use it in a SmartScape query.
-
 **Example — start traverse from a known host ID:**
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.host"
+smartscapeNodes HOST
 | filter id == toSmartscapeId("HOST-0000000000000123")
-| traverse
-    | edgeType: "*RUNS_ON*"
-    | direction: "backward"
+| traverse {runs_on}, {PROCESS}, direction: backward
 | fields id, name
 ```
 
@@ -361,15 +374,12 @@ smartscapeNodes
 
 ### `classicEntitySelector()`
 
-Converts a classic entity selector string into a list of SmartScape-compatible IDs. Useful for filtering nodes by tags, management zones, or other classic selector criteria.
+Converts a classic entity selector string into a list of SmartScape-compatible IDs. Useful for filtering nodes by tags, management zones, or other selector criteria.
 
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.host"
+smartscapeNodes HOST
 | filter id in classicEntitySelector("type(HOST),tag(production)")
-| traverse
-    | edgeType: "*"
-    | direction: "forward"
+| traverse {"*"}, {"*"}, direction: forward
 | fields id, name, type
 ```
 
@@ -384,7 +394,7 @@ smartscapeNodes
 
 ## Entity Views (`dt.entity.*`)
 
-For simpler attribute lookups (not topology traversal), you can query entity tables directly using `fetch`:
+For attribute lookups and filtering without topology traversal, query entity tables directly using `fetch`. These use a different naming convention (`dt.entity.host`) than SmartScape (`HOST`).
 
 ```dql
 fetch dt.entity.host
@@ -392,23 +402,21 @@ fetch dt.entity.host
 | limit 50
 ```
 
-These views are indexed and fast for filtering/counting but don't include topology edges.
+These views are fast for filtering and counting but don't include topology edges.
 
 **Common entity views:**
 
-| View | Entity type |
-|------|-------------|
-| `dt.entity.host` | Hosts |
-| `dt.entity.service` | Services |
-| `dt.entity.application` | Web applications |
-| `dt.entity.mobile_application` | Mobile applications |
-| `dt.entity.process_group` | Process groups |
-| `dt.entity.process_group_instance` | Process group instances |
-| `dt.entity.kubernetes_cluster` | Kubernetes clusters |
-| `dt.entity.kubernetes_node` | Kubernetes nodes |
-| `dt.entity.aws_credentials` | AWS credential entities |
-| `dt.entity.azure_subscription` | Azure subscriptions |
-| `dt.entity.gcp_zone` | GCP zones |
+| `fetch` view | SmartScape type | Description |
+|-------------|-----------------|-------------|
+| `dt.entity.host` | `HOST` | Physical or virtual hosts |
+| `dt.entity.service` | `SERVICE` | Services |
+| `dt.entity.process_group_instance` | `PROCESS` | Individual processes |
+| `dt.entity.application` | `FRONTEND` | Web applications |
+| `dt.entity.kubernetes_cluster` | `K8S_CLUSTER` | Kubernetes clusters |
+| `dt.entity.kubernetes_node` | `K8S_NODE` | Kubernetes nodes |
+| `dt.entity.kubernetes_pod` | `K8S_POD` | Kubernetes pods |
+| `dt.entity.cloud_application` | `K8S_DEPLOYMENT` | K8s workloads/deployments |
+| `dt.entity.cloud_application_namespace` | `K8S_NAMESPACE` | K8s namespaces |
 
 **Example — count hosts per management zone:**
 ```dql
@@ -420,40 +428,43 @@ fetch dt.entity.host
 
 ---
 
-## Node Types Reference
+## Node & Edge Types Reference
 
-### Core Infrastructure
+### Node Types (confirmed on this tenant)
 
-| Node Type | Description |
-|-----------|-------------|
-| `dt.entity.host` | Physical or virtual hosts |
-| `dt.entity.host_group` | Host groups |
-| `dt.entity.process_group` | Process groups |
-| `dt.entity.process_group_instance` | Individual processes |
-| `dt.entity.service` | Services |
-| `dt.entity.application` | Web applications |
-| `dt.entity.mobile_application` | Mobile applications |
-| `dt.entity.custom_application` | Custom applications |
-| `dt.entity.synthetic_test` | Synthetic monitors |
+| SmartScape Type | Description |
+|----------------|-------------|
+| `HOST` | Physical or virtual hosts |
+| `SERVICE` | Services |
+| `PROCESS` | Individual process group instances |
+| `CONTAINER` | Containers |
+| `FRONTEND` | Web / RUM applications |
+| `NETWORK_INTERFACE` | Network interfaces |
+| `DISK` | Disk devices |
+| `ONEAGENT` | OneAgent instances |
+| `K8S_CLUSTER` | Kubernetes clusters |
+| `K8S_NODE` | Kubernetes nodes |
+| `K8S_POD` | Kubernetes pods |
+| `K8S_NAMESPACE` | Kubernetes namespaces |
+| `K8S_DEPLOYMENT` | Kubernetes deployments |
+| `K8S_DAEMONSET` | Kubernetes daemon sets |
+| `K8S_STATEFULSET` | Kubernetes stateful sets |
+| `K8S_REPLICASET` | Kubernetes replica sets |
+| `K8S_SERVICE` | Kubernetes services |
+| `K8S_CRONJOB` | Kubernetes cron jobs |
+| `K8S_DYNAKUBE` | Dynatrace Kubernetes operator |
+| `K8S_NETWORKPOLICY` | Kubernetes network policies |
 
-### Kubernetes
+### Edge Types (confirmed on this tenant)
 
-| Node Type | Description |
-|-----------|-------------|
-| `dt.entity.kubernetes_cluster` | K8s clusters |
-| `dt.entity.kubernetes_node` | K8s nodes |
-| `dt.entity.cloud_application` | K8s workloads/deployments |
-| `dt.entity.cloud_application_namespace` | K8s namespaces |
-| `dt.entity.container_group` | Container groups (pods) |
-| `dt.entity.container_group_instance` | Individual containers |
-
-### Cloud
-
-| Node Type | Description |
-|-----------|-------------|
-| `dt.entity.aws_credentials` | AWS credential/account entities |
-| `dt.entity.azure_subscription` | Azure subscriptions |
-| `dt.entity.gcp_zone` | GCP zones |
+| Edge Type | Direction | Meaning |
+|-----------|-----------|---------|
+| `runs_on` | PROCESS → HOST / CONTAINER | Process runs on a host or container |
+| `calls` | SERVICE → SERVICE | Service calls another service |
+| `belongs_to` | Many → parent | Entity belongs to a group/cluster |
+| `is_part_of` | Component → whole | Component is part of a larger entity |
+| `monitors` | ONEAGENT → HOST | OneAgent monitors a host |
+| `uses` | Entity → dependency | Entity uses another entity |
 
 ---
 
@@ -461,46 +472,51 @@ fetch dt.entity.host
 
 ---
 
-### Map all services on a host
+### Discover all node and edge types in your environment
 
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.host"
+smartscapeNodes "*"
+| fields type
+| dedup type
+```
+
+```dql
+smartscapeEdges "*"
+| fields type
+| dedup type
+```
+
+---
+
+### Map all processes on a host
+
+```dql
+smartscapeNodes HOST
 | filter name == "prod-web-01"
-| traverse
-    | edgeType: "*RUNS_ON*"
-    | direction: "backward"
-| filter type == "dt.entity.service"
+| traverse {runs_on}, {PROCESS}, direction: backward
 | fields name, id
 ```
 
 ---
 
-### Find orphaned services (no upstream callers)
+### Find all services a process group calls
 
 ```dql
-// Get all services that ARE called
-smartscapeEdges
-| edgeType: "SERVICE_CALLS_SERVICE"
-| fields target_id
-| dedup target_id
-
-// Then compare against all services
-// (Use in a notebook or workflow with two steps)
+smartscapeNodes PROCESS
+| filter name == "checkout-service-process"
+| traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
+| fields id, name, dt.traverse.history
 ```
 
 ---
 
-### Topology map: application → services → hosts
+### Topology map: count what each service calls
 
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.application"
-| traverse
-    | edgeType: "*"
-    | direction: "forward"
-    | maxDepth: 3
-| summarize count(), by: {type}
+smartscapeEdges calls
+| filter source_type == "SERVICE"
+| summarize outbound_calls = count(), by: {source_id}
+| sort outbound_calls desc
 ```
 
 ---
@@ -508,9 +524,8 @@ smartscapeNodes
 ### Count relationship types in your environment
 
 ```dql
-smartscapeEdges
-| edgeType: "*"
-| summarize edges = count(), by: {edge_type}
+smartscapeEdges "*"
+| summarize edges = count(), by: {type}
 | sort edges desc
 ```
 
@@ -519,28 +534,20 @@ smartscapeEdges
 ### Filter by management zone then traverse
 
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.host"
+smartscapeNodes HOST
 | filter id in classicEntitySelector("type(HOST),mzName(Production)")
-| traverse
-    | edgeType: "*RUNS_ON*"
-    | direction: "backward"
-| filter type == "dt.entity.service"
+| traverse {runs_on}, {PROCESS}, direction: backward
 | fields name, id, dt.traverse.history
 ```
 
 ---
 
-### Trace a call chain (multi-hop path)
+### Trace a service call chain
 
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.service"
+smartscapeNodes SERVICE
 | filter name == "api-gateway"
-| traverse
-    | edgeType: "SERVICE_CALLS_SERVICE"
-    | direction: "forward"
-    | maxDepth: 5
+| traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
 | fields name, dt.traverse.history
 | sort arraySize(dt.traverse.history) asc
 ```
@@ -549,17 +556,12 @@ The `dt.traverse.history` array length tells you how many hops away each service
 
 ---
 
-### Find all Kubernetes services in a cluster
+### Find all Kubernetes pods in a cluster
 
 ```dql
-smartscapeNodes
-| nodeType: "dt.entity.kubernetes_cluster"
+smartscapeNodes K8S_CLUSTER
 | filter name == "my-cluster"
-| traverse
-    | edgeType: "*"
-    | direction: "forward"
-    | maxDepth: 4
-| filter type == "dt.entity.service"
+| traverse {belongs_to}, {K8S_POD}, direction: backward
 | fields name, id, dt.traverse.history
 ```
 
@@ -568,21 +570,27 @@ smartscapeNodes
 ## Quick Reference Card
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    SmartScape DQL Cheatsheet                    │
-├──────────────────────┬──────────────────────────────────────────┤
-│ Load nodes           │ smartscapeNodes | nodeType: "dt.entity.X"│
-│ Load edges           │ smartscapeEdges | edgeType: "PATTERN"    │
-│ Walk graph           │ ... | traverse | edgeType: "..." |       │
-│                      │   direction: "forward"/"backward"/"both" │
-│                      │   maxDepth: N                            │
-├──────────────────────┼──────────────────────────────────────────┤
-│ Convert classic ID   │ toSmartscapeId("HOST-000...")            │
-│ Filter by selector   │ classicEntitySelector("type(HOST),...")  │
-├──────────────────────┼──────────────────────────────────────────┤
-│ Path history         │ dt.traverse.history  → array of IDs      │
-│ Simple entity fetch  │ fetch dt.entity.host                     │
-└──────────────────────┴──────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                     SmartScape DQL Cheatsheet                       │
+├───────────────────────┬─────────────────────────────────────────────┤
+│ Load nodes            │ smartscapeNodes HOST                        │
+│                       │ smartscapeNodes {HOST, SERVICE}             │
+│                       │ smartscapeNodes "K8S_*"                     │
+├───────────────────────┼─────────────────────────────────────────────┤
+│ Load edges            │ smartscapeEdges runs_on                     │
+│                       │ smartscapeEdges "*"                         │
+├───────────────────────┼─────────────────────────────────────────────┤
+│ Walk graph            │ | traverse {calls}, {SERVICE}               │
+│                       │     direction: forward / backward           │
+│                       │     fieldsKeep: {name}                      │
+├───────────────────────┼─────────────────────────────────────────────┤
+│ Convert classic ID    │ toSmartscapeId("HOST-000...")               │
+│ Filter by selector    │ classicEntitySelector("type(HOST),...")     │
+├───────────────────────┼─────────────────────────────────────────────┤
+│ Path history          │ dt.traverse.history → array of              │
+│                       │   {id, edge_type, direction, ...keepFields} │
+│ Simple entity fetch   │ fetch dt.entity.host                        │
+└───────────────────────┴─────────────────────────────────────────────┘
 ```
 
 ---
