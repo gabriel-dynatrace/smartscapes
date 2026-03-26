@@ -597,7 +597,7 @@ smartscapeEdges "*"
 smartscapeEdges "*"
 | lookup [smartscapeNodes "*" | fields id, name], sourceField: source_id, lookupField: id, prefix: "source."
 | lookup [smartscapeNodes "*" | fields id, name], sourceField: target_id, lookupField: id, prefix: "target."
-| fields type, source.name, target.name
+| fields source.name, type, target.name
 ```
 
 The resolved name comes back as `lookup.name` by default, or `<prefix>name` when a `prefix` is set.
