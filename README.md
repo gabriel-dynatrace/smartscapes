@@ -7,27 +7,32 @@ A practical, easy-to-digest guide for querying topology data using Dynatrace's S
 ## Table of Contents
 
 1. [What is SmartScape on Grail?](#what-is-smartscape-on-grail)
-2. [Core Concepts](#core-concepts)
-3. [Nodes vs Edges](#nodes-vs-edges)
-4. [The Three Commands](#the-three-commands)
+2. [SmartScape vs. Classic SmartScape](#smartscape-vs-classic-smartscape)
+3. [The SmartScape App](#the-smartscape-app)
+4. [Core Concepts](#core-concepts)
+5. [Segments (Replacing Management Zones)](#segments-replacing-management-zones)
+6. [Nodes vs Edges](#nodes-vs-edges)
+7. [The Three Commands](#the-three-commands)
    - [smartscapeNodes](#smartscapenodes)
    - [smartscapeEdges](#smartscapeedges)
    - [traverse](#traverse)
-5. [Helper Functions](#helper-functions)
-6. [Entity Views (`dt.entity.*`)](#entity-views-dtentity)
-7. [Node & Edge Types Reference](#node--edge-types-reference)
-8. [Common Patterns & Recipes](#common-patterns--recipes)
-9. [Tips](#tips)
+8. [Helper Functions](#helper-functions)
+9. [Entity Views (`dt.entity.*`) — Legacy](#entity-views-dtentity--legacy)
+10. [Node & Edge Types Reference](#node--edge-types-reference)
+11. [Common Patterns & Recipes](#common-patterns--recipes)
+12. [Tips](#tips)
+13. [Quick Reference Card](#quick-reference-card)
+14. [Further Reading](#further-reading)
 
 ---
 
 ## What is SmartScape on Grail?
 
-SmartScape on Grail is Dynatrace's topology engine, accessible via DQL. It models your environment as a **graph** — nodes are entities, edges are the relationships between them.
+SmartScape on Grail is Dynatrace's topology engine, accessible via DQL. It models your environment as a **graph** — nodes are entities, edges are the relationships between them. It is a complete rebuild of SmartScape Classic and is queryable, segment-aware, and integrated across all data sources (OneAgent, OpenTelemetry, cloud providers, Kubernetes, extensions, and more).
 
 ```mermaid
 flowchart LR
-    APP["🖥️ APPLICATION\ncheckout-app"]:::app
+    APP["🖥️ FRONTEND\ncheckout-app"]:::app
     SVC1["⚙️ SERVICE\nfrontend-service"]:::svc
     SVC2["⚙️ SERVICE\nbackend-service"]:::svc
     HOST1["🖧 HOST\nweb-server-01"]:::host
@@ -52,17 +57,109 @@ You query nodes and edges directly in DQL using three commands:
 
 ---
 
+## SmartScape vs. Classic SmartScape
+
+| Capability | SmartScape Classic | SmartScape on Grail |
+|---|---|---|
+| **Entity types** | 5 (host, process, service, application, a few cloud) | 100+ (all cloud, Kubernetes, extensions, etc.) |
+| **DQL query** | One entity type at a time, complex nested lookups | Single command queries multiple types |
+| **Traversal** | Entity selectors (cumbersome) | `traverse` command with `direction` and `fieldsKeep` |
+| **Filtering/scoping** | Management zones | Segments built on Grail fields |
+| **Permissions** | Management zones | IAM policies + segments (decoupled) |
+| **OpenTelemetry** | Limited, not always queryable | Full support — OTel traces draw the service dependency graph alongside OneAgent |
+| **OpenPipeline** | Not integrated | Can extract topology nodes and edges from any pipeline data |
+| **Custom topology** | Not supported | Supported via OpenPipeline node/edge extraction |
+
+> **Note:** Not every entity type has migrated to SmartScape on Grail yet. Network devices and custom devices are not available in SmartScape on Grail at this time. They remain in the classic model and will move over as dedicated entity types (e.g., `NETWORK_DEVICE`, `NETWORK_INTERFACE`) are introduced.
+
+---
+
+## The SmartScape App
+
+Dynatrace includes a new **SmartScape app** (search for "SmartScape" in Apps — use the pink new app, not SmartScape Classic).
+
+The app ships with several pre-built views:
+
+| View | Description |
+|------|-------------|
+| **Explore** | Full topology map across all entity types |
+| **Infrastructure Overview** | Infrastructure-focused entity view for admins |
+| **Problem Graph** | Shows entities related to active problems (causal AI) |
+| **Service Dependency Graph** | Service-to-service call map; works with both OneAgent and OpenTelemetry |
+| **Cloud provider views** | Pre-built views for AWS, Azure, and GCP (as integrations mature) |
+
+**Service Dependency Graph** is a notable upgrade — it works with OneAgent, pure OTel, or a hybrid mix. Click any node to see response time, throughput, and failure rate. Click **View Topology** to see the full chain: service → process → pod → node → container → host → EC2 instance → availability zone.
+
+**Segments** control what appears in the app. Switching segments refreshes all views automatically.
+
+> **Note:** Custom SmartScape views (user-created documents) are not yet available but are planned. Dashboards will eventually include a node graph tile type.
+
+---
+
 ## Core Concepts
 
 | Term | Meaning |
 |------|---------|
-| **Node** | An entity (host, service, process, etc.) |
+| **Node** | An entity (host, service, process, Kubernetes pod, etc.) |
 | **Edge** | A directed relationship between two entities (e.g. `calls`, `runs_on`) |
 | **Node type** | Short uppercase name for the entity type: `HOST`, `SERVICE`, `PROCESS`, etc. |
 | **Edge type** | Lowercase relationship name: `calls`, `runs_on`, `belongs_to`, etc. |
 | **SmartScape ID** | The internal graph ID for an entity (e.g. `HOST-0A1B2C3D4E5F6789`) |
+| **Segment** | A scoped view of SmartScape built on Grail field filters — replaces management zones for filtering |
+| **Primary Grail field** | A top-level field on a SmartScape node (e.g. `cloud.provider`, `k8s.namespace.name`) used to build segment filters |
 
-> **Note:** SmartScape node types (`HOST`, `SERVICE`) are different from the `dt.entity.*` names used with `fetch`. See the [reference table](#node--edge-types-reference) for the mapping.
+> **Important:** SmartScape on Grail does **not** use management zones for filtering or scoping. Segments are the replacement. See [Segments](#segments-replacing-management-zones).
+
+> **Note:** SmartScape node types (`HOST`, `SERVICE`) are different from the `dt.entity.*` names used with `fetch`. See the [reference table](#node--edge-types-reference) for the mapping. Classic entity IDs are preserved on SmartScape nodes for compatibility.
+
+---
+
+## Segments (Replacing Management Zones)
+
+Management zones have been split into two separate concepts in Grail:
+
+| Old (Management Zones) | New (Grail) |
+|---|---|
+| Filtering / scoping entities | **Segments** — filter on Grail fields |
+| Access control / permissions | **IAM policies** — `storage.smartscape.read` with field-level conditions |
+
+### What are Segments?
+
+A segment is a simple field filter applied across all Grail data — metrics, logs, traces, spans, events, and SmartScape entities — using the same field names. Because the semantic dictionary ensures consistent field names across all data types, a segment built on `k8s.namespace.name` will filter entities, metrics, and logs all together.
+
+**Example — segment filter for a cloud provider:**
+```
+filter cloud.provider == "$cloud_provider"
+```
+
+That single filter, applied as a segment, will correctly scope all SmartScape entities and associated telemetry to that cloud provider.
+
+### Building Segments
+
+1. Query SmartScape nodes to discover available field values:
+```dql
+smartscapeNodes "*"
+| fields cloud.provider
+| dedup cloud.provider
+```
+
+2. Use those field values to define the segment filter in the Segments UI.
+
+### Segments and IAM
+
+To restrict what a user can *see* (not just filter), combine IAM policy conditions with segments:
+
+- Grant: `storage.smartscape.read` where `k8s.namespace.name == "team-a"`
+- Grant: `storage.metrics.read` where `k8s.namespace.name == "team-a"`
+- Grant: `storage.logs.read` where `k8s.namespace.name == "team-a"`
+
+Because field names are shared across data types via the semantic dictionary, this consistently restricts entities, metrics, and logs all at once.
+
+### Migrating from Management Zones
+
+There is no automated migration path from management zones to segments. Simple management zones (e.g., "anything tagged X") are relatively straightforward to recreate. Complex ones with dependency trees or cloud-specific filtering are harder and may require a redesign rather than a direct port.
+
+> **Tip:** The **Semantic Dictionary** (search for it in Dynatrace) lists all available Grail fields and their values — use it to discover what fields are available for building segment filters.
 
 ---
 
@@ -76,7 +173,7 @@ A **node** represents a monitored entity: a host, service, process, Kubernetes p
 
 - A **type** — short uppercase name for the entity kind (e.g. `HOST`, `SERVICE`)
 - An **ID** — a unique SmartScape identifier for that entity
-- **Attributes** — properties like name, tags, management zones, etc.
+- **Attributes** — properties like name, tags, cloud metadata, Kubernetes labels, and configuration data
 
 Nodes are the "things" in your environment. When you query `smartscapeNodes`, you're asking: *"Give me all entities of this type."*
 
@@ -163,6 +260,8 @@ The type is a **positional argument** passed directly after the command — no p
 | `type` | string | Entity type (e.g. `HOST`, `SERVICE`) |
 | `name` | string | Display name |
 
+> **Note:** All relevant fields for a node type are returned automatically — no `fieldsAdd` needed to get basic metadata. Cloud config, Kubernetes object data, port info, and process metadata all appear inline.
+
 #### Examples
 
 **Load all hosts:**
@@ -221,7 +320,7 @@ smartscapeEdges "<GLOB*>"    // pattern matching, must be quoted
 | `target_id` | string | SmartScape ID of the target entity |
 | `target_type` | string | Node type of the target (e.g. `HOST`) |
 
-> **Note:** The field is named `type`, not `edge_type`.
+> **Note:** The field is named `type`, not `edge_type`. This is different from the `edge_type` field name used inside `dt.traverse.history` entries.
 
 #### Examples
 
@@ -285,18 +384,26 @@ Both the edge type and target type are **positional arguments** passed as `{}` g
 
 > **Note:** There is no `maxDepth` parameter.
 
+#### Choosing `direction`
+
+The easiest way to determine direction: read left to right. If your query starts with processes and you want to reach hosts, think "process **runs on** host" — that is `forward`. If you start from hosts and want to reach processes (following the same edge backward), that is `backward`.
+
+By default, direction is `forward`. You only need to specify it when traversing against the edge's natural direction.
+
 #### Special field: `dt.traverse.history`
 
-Every result from `traverse` includes `dt.traverse.history` — an array of objects showing the path taken to reach that node. Each entry contains:
+Every result from `traverse` includes `dt.traverse.history` — an ordered array showing the path taken to reach that node. Each entry contains:
 
 ```json
 {
   "id": "HOST-0A1B2C3D4E5F6789",
   "edge_type": "runs_on",
   "direction": "BACKWARD",
-  "name": "web-server-01"   // only if fieldsKeep: {name} was set
+  "name": "web-server-01"
 }
 ```
+
+**Important:** `dt.traverse.history` is always append-ordered — each additional `traverse` pipe appends one more entry. You can safely index on position `[0]`, `[1]`, etc. because the order is deterministic, not random.
 
 The length of the array tells you how many hops away the result is.
 
@@ -325,12 +432,14 @@ smartscapeNodes SERVICE
 | fields id, name, dt.traverse.history
 ```
 
-**Multi-hop: processes → hosts, then hosts → containers (chained):**
+**Multi-hop: services → processes → hosts (chained traversals):**
 ```dql
-smartscapeNodes PROCESS
-| traverse {runs_on}, {HOST}, direction: forward
-| traverse {runs_on}, {CONTAINER}, direction: forward
-| fields id, name, type, dt.traverse.history
+smartscapeNodes SERVICE
+| traverse {runs_on}, {PROCESS}, direction: forward, fieldsKeep: {name}
+| traverse {runs_on}, {HOST}, direction: forward, fieldsKeep: {name}
+| fieldsAdd service_name = dt.traverse.history[0]["name"]
+| fieldsAdd process_name = dt.traverse.history[1]["name"]
+| fields service_name, process_name, name
 ```
 
 **Find all services that call a specific service (reverse lookup):**
@@ -352,7 +461,7 @@ smartscapeNodes HOST
 
 ## Helper Functions
 
-These DQL functions convert between classic Dynatrace entity IDs and SmartScape IDs.
+These DQL functions are used with SmartScape queries.
 
 ---
 
@@ -370,6 +479,30 @@ smartscapeNodes HOST
 | filter id == toSmartscapeId("HOST-0A1B2C3D4E5F6789")
 | traverse {runs_on}, {PROCESS}, direction: backward
 | fields id, name
+```
+
+---
+
+### `getNodeName()`
+
+Returns the display name of a SmartScape node from its ID. This replaces the classic `entityName()` function. Unlike `entityName()`, `getNodeName()` does not require you to specify the entity type — it resolves the name regardless of type.
+
+> **Note: Not validated against tenant** — syntax confirmed by Dynatrace SME; verify against your tenant before use.
+
+```dql
+| fieldsAdd node_name = getNodeName(id)
+```
+
+---
+
+### `getNodeField()`
+
+Returns a specific attribute of a SmartScape node from its ID. This replaces the classic `entityAttribute()` function. Like `getNodeName()`, it is type-agnostic.
+
+> **Note: Not validated against tenant** — syntax confirmed by Dynatrace SME; verify against your tenant before use.
+
+```dql
+| fieldsAdd field_value = getNodeField(id, "some.field")
 ```
 
 ---
@@ -395,13 +528,15 @@ fetch dt.entity.host
 
 ---
 
-## Entity Views (`dt.entity.*`)
+## Entity Views (`dt.entity.*`) — Legacy
 
-For attribute lookups and filtering without topology traversal, query entity tables directly using `fetch`. These use a different naming convention (`dt.entity.host`) than SmartScape (`HOST`).
+> **Deprecation notice:** `dt.entity.*` entity storage is deprecated. Dynatrace will display deprecation warnings on dashboards and alerts that use it. Begin migrating to `dt.smartscape.*` fields and `smartscapeNodes` queries. There is no set removal date, but migration is recommended now. `dt.entity.*` will continue to work in the interim.
+
+For attribute lookups and filtering without topology traversal, you can still query entity tables directly using `fetch`. These use a different naming convention (`dt.entity.host`) than SmartScape (`HOST`).
 
 ```dql
 fetch dt.entity.host
-| fields entity.name, entity.detected_name, tags, managementZones
+| fields entity.name, entity.detected_name, tags
 | limit 50
 ```
 
@@ -414,20 +549,14 @@ These views are fast for filtering and counting but don't include topology edges
 | `dt.entity.host` | `HOST` | Physical or virtual hosts |
 | `dt.entity.service` | `SERVICE` | Services |
 | `dt.entity.process_group_instance` | `PROCESS` | Individual processes |
-| `dt.entity.application` | `FRONTEND` | Web applications |
+| `dt.entity.application` | `FRONTEND` | Web / RUM applications (note: type is now `FRONTEND`, not `APPLICATION`) |
 | `dt.entity.kubernetes_cluster` | `K8S_CLUSTER` | Kubernetes clusters |
 | `dt.entity.kubernetes_node` | `K8S_NODE` | Kubernetes nodes |
 | `dt.entity.kubernetes_pod` | `K8S_POD` | Kubernetes pods |
 | `dt.entity.cloud_application` | `K8S_DEPLOYMENT` | K8s workloads/deployments |
 | `dt.entity.cloud_application_namespace` | `K8S_NAMESPACE` | K8s namespaces |
 
-**Example — count hosts per management zone:**
-```dql
-fetch dt.entity.host
-| fieldsAdd mz = managementZones[0]
-| summarize hosts = count(), by: {mz}
-| sort hosts desc
-```
+**Migration note for time series queries:** References like `dt.entity.service` in metric dimensions are moving to `dt.smartscape.service`. Update dashboards and anomaly detectors incrementally; both formats work concurrently during the transition.
 
 ---
 
@@ -439,12 +568,12 @@ fetch dt.entity.host
 |----------------|-------------|
 | `HOST` | Physical or virtual hosts |
 | `SERVICE` | Services |
-| `PROCESS` | Individual process group instances |
+| `PROCESS` | Individual process group instances (previously called "process group instance") |
 | `CONTAINER` | Containers |
-| `FRONTEND` | Web / RUM applications |
-| `NETWORK_INTERFACE` | Network interfaces |
+| `FRONTEND` | Web / RUM applications (previously called "application") |
+| `NETWORK_INTERFACE` | Network interfaces (attached to a host) |
 | `DISK` | Disk devices |
-| `ONEAGENT` | OneAgent instances |
+| `ONEAGENT` | OneAgent instances (now a distinct entity type) |
 | `K8S_CLUSTER` | Kubernetes clusters |
 | `K8S_NODE` | Kubernetes nodes |
 | `K8S_POD` | Kubernetes pods |
@@ -458,16 +587,26 @@ fetch dt.entity.host
 | `K8S_DYNAKUBE` | Dynatrace Kubernetes operator |
 | `K8S_NETWORKPOLICY` | Kubernetes network policies |
 
+> **Not yet on SmartScape on Grail:** Network devices and custom devices remain in SmartScape Classic for now. Network devices will eventually have dedicated node types (e.g., `NETWORK_DEVICE`). Custom devices are being phased out in favor of properly typed entity nodes.
+
+> **Tip:** Run `smartscapeNodes "*" | fields type | dedup type` on your tenant to see all entity types actually present in your environment. Dynatrace currently supports 100+ node types.
+
 ### Edge Types (confirmed on this tenant)
 
 | Edge Type | Direction | Meaning |
 |-----------|-----------|---------|
 | `runs_on` | PROCESS → HOST / CONTAINER | Process runs on a host or container |
 | `calls` | SERVICE → SERVICE | Service calls another service |
-| `belongs_to` | Many → parent | Entity belongs to a group/cluster |
+| `belongs_to` | Many → parent | Entity belongs to a group or cluster (e.g., namespace belongs to cluster) |
+| `contains` | Parent → child | Parent entity contains child (inverse of `belongs_to`) |
 | `is_part_of` | Component → whole | Component is part of a larger entity |
+| `is_attached_to` | Entity → dependency | Entity is attached to another (e.g., volume to pod) |
 | `monitors` | ONEAGENT → HOST | OneAgent monitors a host |
 | `uses` | Entity → dependency | Entity uses another entity |
+| `routes_to` | Entity → target | Traffic routing relationship |
+| `bounces` | Entity → Entity | Bounce/redirect relationship |
+
+> **Tip:** Run `smartscapeEdges "*" | fields type | dedup type` to see all edge types present in your environment.
 
 ---
 
@@ -534,7 +673,6 @@ smartscapeEdges "*"
 
 ---
 
-
 ### Trace a service call chain
 
 ```dql
@@ -560,37 +698,67 @@ smartscapeNodes K8S_CLUSTER
 
 ---
 
+### Full stack: service → process → host (multi-hop with named history)
+
+```dql
+smartscapeNodes SERVICE
+| filter name startsWith "hipster"
+| traverse {runs_on}, {PROCESS}, direction: forward, fieldsKeep: {name}
+| traverse {runs_on}, {HOST}, direction: forward, fieldsKeep: {name}
+| fieldsAdd service_name = dt.traverse.history[0]["name"]
+| fieldsAdd process_name = dt.traverse.history[1]["name"]
+| fields service_name, process_name, name
+```
+
+---
+
+### Join service topology with response time metrics
+
+```dql
+smartscapeNodes SERVICE
+| filter name == "my-service"
+| traverse {calls}, {SERVICE}, direction: forward, fieldsKeep: {name}
+| lookup [
+    timeseries avg(dt.service.request.response_time), by: {dt.smartscape.service}
+    | fieldsRename id = dt.smartscape.service
+  ], sourceField: id, lookupField: id
+| fields name, lookup.avg
+```
+
+> **Note: Not validated against tenant** — adjust field names to match your metric schema.
+
+---
+
+### Kubernetes compliance: find pods using secrets older than 90 days
+
+```dql
+smartscapeNodes K8S_POD
+| fieldsAdd k8s_obj = parseJson(k8s.object)
+| fieldsAdd volumes = k8s_obj["spec"]["volumes"]
+| expand volumes
+| filter isNotNull(volumes["secret"])
+| fieldsAdd secret_name = volumes["secret"]["secretName"]
+| lookup [
+    smartscapeNodes K8S_SECRET
+    | fieldsAdd age_days = (now() - fromTimestamp(metadata.creationTimestamp)) / duration("1d")
+    | fields id, name, age_days
+  ], sourceField: secret_name, lookupField: name
+| filter lookup.age_days > 90
+| fields name, secret_name, lookup.age_days
+| sort lookup.age_days desc
+```
+
+> **Note: Not validated against tenant** — the compliance pattern is SME-confirmed; exact field paths may vary by Kubernetes version and operator configuration.
+
+---
+
 ## Tips
 
 ---
 
 ### Edges don't carry names — use `lookup` to resolve them
 
-`smartscapeEdges` only returns IDs (`source_id`, `target_id`) — there are no name fields on the edge itself. Names live on nodes. If you need human-readable names alongside your edge data, you must join back to `smartscapeNodes` using `lookup`.
-
-**Get the target entity name:**
-```dql
-smartscapeEdges "*"
-| lookup [smartscapeNodes "*" | fields id, name], sourceField: target_id, lookupField: id
-| fields type, source_id, lookup.name
-```
-
-| type | source_id | lookup.name |
-|---|---|---|
-| runs_on | PROCESS-0A1B2C3D... | web-server-01 |
-| calls | SERVICE-0A1B2C3D... | backend-service |
-
-**Get the source entity name:**
-```dql
-smartscapeEdges "*"
-| lookup [smartscapeNodes "*" | fields id, name], sourceField: source_id, lookupField: id
-| fields lookup.name, type, target_id
-```
-
-| lookup.name | type | target_id |
-|---|---|---|
-| my-process | runs_on | HOST-0A1B2C3D... |
-| frontend-service | calls | SERVICE-0A1B2C3D... |
+`smartscapeEdges` only returns IDs (`source_id`, `target_id`) — there are no name fields on the edge itself. Names live on nodes. If you need human-readable names alongside your edge data, join back to `smartscapeNodes` using `lookup`.
 
 **Get both source and target names at once using `prefix`:**
 ```dql
@@ -600,15 +768,11 @@ smartscapeEdges "*"
 | fields source.name, type, target.name
 ```
 
-The column order matches the relationship direction, so results read naturally left to right:
-
 | source.name | type | target.name |
 |---|---|---|
 | frontend-service | calls | backend-service |
 | my-process | runs_on | web-server-01 |
 | oneagent | monitors | web-server-01 |
-
-The resolved name comes back as `lookup.name` by default, or `<prefix>name` when a `prefix` is set.
 
 ---
 
@@ -620,6 +784,63 @@ When querying `smartscapeEdges`, the relationship type field is named `type` —
 smartscapeEdges "*"
 | fields type, source_id, target_id   // ✅ correct field name
 ```
+
+---
+
+### `dt.traverse.history` is ordered and safe to index
+
+Each `traverse` pipe appends one entry to the array in order. You can safely reference positions by index — `[0]` is always the first hop, `[1]` is the second, and so on.
+
+```dql
+| fieldsAdd first_hop_name  = dt.traverse.history[0]["name"]
+| fieldsAdd second_hop_name = dt.traverse.history[1]["name"]
+```
+
+---
+
+### Applications are now called FRONTEND
+
+The entity type previously known as `APPLICATION` in SmartScape Classic is now called `FRONTEND` in SmartScape on Grail. The word "application" is used too broadly across the platform, so the topology type was renamed to match its actual role (browser/RUM frontend).
+
+```dql
+smartscapeEdges calls
+| filter source_type == "FRONTEND"   // ✅ correct for SmartScape on Grail
+```
+
+---
+
+### Querying SmartScape is free
+
+SmartScape nodes, edges, and traversals have no associated DPS (Data Points per Second) cost. Querying SmartScape — even at scale — does not consume your Dynatrace license units.
+
+---
+
+### `dt.smartscape.*` dimensions in anomaly detectors
+
+When configuring anomaly detectors on metrics, use `dt.smartscape.<type>` as the entity dimension instead of `dt.source_entity`. This links the alert to a SmartScape entity rather than a classic entity.
+
+```
+Dimension: dt.smartscape.service   // ✅ new way
+Dimension: dt.source_entity        // legacy — still works but being deprecated
+```
+
+The `dt.smartscape.*` dimension is only populated when the metric flows through **OpenPipeline**. Data processed through the classic pipeline will not have this dimension. If you're seeing gaps, check whether your data source has an active OpenPipeline configuration.
+
+---
+
+### OpenPipeline can generate custom topology
+
+In OpenPipeline, you can add **node extraction** and **relationship extraction** processors to any pipeline (logs, metrics, traces). This lets you define custom SmartScape entities and edges from arbitrary data — including extension telemetry, third-party systems (SAP, mainframe, etc.), or any custom integration.
+
+Extensions are beginning to ship with pre-built OpenPipeline configurations that include node and edge extraction, so installing an extension may automatically add entities to SmartScape on Grail.
+
+---
+
+### Network devices and custom devices are not yet on SmartScape on Grail
+
+If you rely on network device entities, continue using SmartScape Classic for those. A dedicated network map is planned inside the Infrastructure Operations app — that will be powered by SmartScape on Grail once network devices are migrated.
+
+Custom devices (the generic catch-all from extensions) are also not in SmartScape on Grail by design — they are being replaced by properly typed entity nodes (e.g., `REDIS_INSTANCE`, `NETWORK_DEVICE`) as integrations are updated.
 
 ---
 
@@ -642,10 +863,21 @@ smartscapeEdges "*"
 ├───────────────────────┼─────────────────────────────────────────────┤
 │ Convert classic ID    │ toSmartscapeId("HOST-000...")               │
 │ Filter by selector    │ classicEntitySelector("type(HOST),...")     │
+│ Resolve node name     │ getNodeName(id)                             │
+│ Resolve node field    │ getNodeField(id, "field.name")              │
 ├───────────────────────┼─────────────────────────────────────────────┤
-│ Path history          │ dt.traverse.history → array of              │
+│ Path history          │ dt.traverse.history → ordered array of      │
 │                       │   {id, edge_type, direction, ...keepFields} │
-│ Simple entity fetch   │ fetch dt.entity.host                        │
+│                       │   index safely: [0], [1], [2]...            │
+├───────────────────────┼─────────────────────────────────────────────┤
+│ Scoping               │ Segments (not management zones)             │
+│ Permissions           │ IAM policies + storage.smartscape.read      │
+│ Cost                  │ Free — no DPS cost                          │
+├───────────────────────┼─────────────────────────────────────────────┤
+│ Entity type changes   │ APPLICATION → FRONTEND                      │
+│                       │ process group instance → PROCESS            │
+│ Deprecated            │ dt.entity.* → dt.smartscape.*              │
+│                       │ management zones → segments                 │
 └───────────────────────┴─────────────────────────────────────────────┘
 ```
 
@@ -657,6 +889,9 @@ smartscapeEdges "*"
 - [SmartScape DQL Commands Reference](https://docs.dynatrace.com/docs/platform/grail/dynatrace-query-language/commands/smartscape-commands)
 - [DQL Language Reference](https://docs.dynatrace.com/docs/platform/grail/dynatrace-query-language)
 - [Entity Selector Reference](https://docs.dynatrace.com/docs/platform/grail/dynatrace-query-language/functions/classicEntitySelector)
+- [Segments — Dynatrace Docs](https://docs.dynatrace.com/docs/platform/segments)
+- [IAM Policies — Dynatrace Docs](https://docs.dynatrace.com/docs/manage/identity-access-management/permission-management/manage-user-permissions-policies)
+- [Semantic Dictionary — Dynatrace Docs](https://docs.dynatrace.com/docs/platform/grail/semantic-dictionary)
 
 ---
 
